@@ -731,9 +731,9 @@ export async function generateQuestionsForTopic(
 ): Promise<ExtractedQuestion[]> {
 
   const pyqContext = pyqs.length > 0 ?
-    `\n\nPREVIOUS YEAR QUESTIONS FOR INSPIRATION (Study these patterns carefully):\n${pyqs.map((q, i) =>
-      `\nPYQ ${i+1} (${q.year} - ${q.slot || 'N/A'}):\nQuestion: ${q.question_statement}${q.options ? `\nOptions: ${q.options.join(', ')}` : ''}${q.answer ? `\nAnswer: ${q.answer}` : ''}${q.solution ? `\nSolution Approach: ${q.solution.slice(0, 200)}` : ''}`
-    ).join('\n')}` : '';
+    `\n\nPREVIOUS YEAR QUESTIONS FOR INSPIRATION (Study these patterns and difficulty levels):\n${pyqs.map((q, i) =>
+      `\nPYQ ${i+1} (${q.year} - ${q.slot || 'N/A'} - ${q.question_type || 'N/A'}):\nQuestion: ${q.question_statement}${q.options && q.options.length > 0 ? `\nOptions:\n  A. ${q.options[0] || ''}\n  B. ${q.options[1] || ''}\n  C. ${q.options[2] || ''}\n  D. ${q.options[3] || ''}` : ''}${q.answer ? `\nCorrect Answer: ${q.answer}` : ''}${q.solution ? `\nSolution: ${q.solution.slice(0, 300)}` : ''}`
+    ).join('\n\n')}` : '';
 
   const existingContext = existingQuestionsContext ?
     `\n\nALREADY GENERATED QUESTIONS (Avoid duplication, create fresh questions):\n${existingQuestionsContext.slice(-1500)}` : '';
@@ -744,21 +744,26 @@ export async function generateQuestionsForTopic(
   const notesContext = topicNotes ?
     `\n\nTOPIC NOTES (Use these methods/concepts for the solution):\n${topicNotes.slice(0, 2000)}` : '';
 
-  const prompt = `You are a professor creating ${examName} - ${courseName} questions. Generate ${count} unique ${questionType} question(s) for: "${topic.name}".
+  const prompt = `You are an expert professor creating ${examName} ${courseName} ${questionType} entrance exam questions. This is a competitive exam preparation, so maintain HIGHEST quality standards.
 
-TOPIC INFORMATION:
+EXAM CONTEXT:
+- Exam: ${examName}
+- Course: ${courseName}
 - Topic: ${topic.name}
 - Weightage: ${((topic.weightage || 0.02) * 100).toFixed(1)}%
+- Question Type: ${questionType}
+
 ${notesContext}
 ${pyqContext}
 ${existingContext}
 ${recentContext}
 
 YOUR TASK:
-1. Study the Previous Year Questions (PYQs) carefully - understand the pattern, difficulty level, and style
-2. Create a NEW question that follows the same pattern but is completely fresh (DO NOT COPY)
-3. When generating the solution, strictly use the methods/concepts from the Topic Notes
-4. Ensure the question tests deep conceptual understanding
+1. Study ALL Previous Year Questions (PYQs) carefully - understand pattern, difficulty, and exam style
+2. Create ${count} BRAND NEW question(s) that follow the exam pattern but are completely fresh (NO COPYING)
+3. Use ONLY authentic scientific concepts and proven methods from Topic Notes
+4. Ensure questions test deep conceptual understanding suitable for ${examName}
+5. Make questions challenging but fair - maintain exam-level difficulty
 
 CRITICAL REQUIREMENTS for ${questionType} questions:
 
@@ -798,20 +803,24 @@ Subjective Requirements:
 - No options needed
 ` : ''}
 
-QUALITY STANDARDS:
+QUALITY STANDARDS FOR ${examName} ENTRANCE EXAM:
 1. Questions must be 100% original - inspired by PYQs but never duplicates
 2. Use proper academic terminology and mathematical notation
-3. Solutions MUST use methods from Topic Notes (not alternative approaches)
-4. Match the ${examName} difficulty level and exam pattern
-5. Write like a professor, not like AI (natural, clear, educational)
-6. Avoid repetitive patterns - each question should feel unique
-7. If you get stuck on a solution, try a different approach rather than continuing with errors
+3. Solutions MUST use authentic concepts from Topic Notes (not alternative approaches)
+4. Match the ${examName} difficulty level and exam pattern EXACTLY
+5. Write professionally like an exam paper, not like AI
+6. Ensure questions have clear, unambiguous answers
+7. Make questions challenging enough to test top students
+8. Avoid repetitive patterns - each question should feel unique
 
-IMPORTANT: Avoid infinite loops in solution generation. If a solution has mistakes:
-- Don't keep trying the same failed approach
-- Verify your answer is mathematically/logically correct
-- Use a completely different method if needed
-- Double-check all calculations before finalizing
+SOLUTION WRITING GUIDELINES:
+1. Keep solutions concise (max 500 characters)
+2. Use authentic, proven scientific methods only
+3. Write in single continuous line (no line breaks)
+4. If solution gets too long, STOP and summarize
+5. Avoid infinite loops - if stuck, restart with different approach
+6. Double-check all calculations before finalizing
+7. Verify answer is mathematically/logically correct
 
 ABSOLUTE JSON REQUIREMENTS (NON-NEGOTIABLE):
 1. Return ONLY the JSON array - NOTHING before or after
@@ -923,25 +932,39 @@ export async function generateSolutionsForPYQs(
   const notesContext = topicNotes ?
     `\n\nTOPIC NOTES (Use these concepts and methods to solve):\n${topicNotes.slice(0, 2500)}` : '';
 
-  const prompt = `You are an expert professor solving ${pyqs[0].topics?.name || 'academic'} questions with 100% accuracy.
+  const prompt = `You are an expert professor solving ${pyqs[0].topics?.name || 'academic'} questions with 100% accuracy using authentic scientific concepts and methods.
 ${notesContext}
 
 CRITICAL ACCURACY REQUIREMENTS:
-1. Triple-check every calculation before finalizing
-2. For MCQ: Verify each option thoroughly, only mark ONE as correct
-3. For MSQ: Check all options, mark ALL correct ones (usually 2-3 options)
-4. For NAT: Calculate the exact numerical value, verify with alternative method if possible
-5. For Subjective: Provide comprehensive step-by-step answer
-6. Use the concepts from Topic Notes when available
-7. If unsure, recalculate using a different approach to verify
-8. Your answer MUST be 100% correct - wrong answers are unacceptable
+1. Use ONLY authentic, proven scientific methods and formulas
+2. Triple-check every calculation before finalizing
+3. For MCQ: Write answer as single letter: A, B, C, or D (exactly ONE correct)
+4. For MSQ: Write answer as comma-separated letters: A, B or A, C, D (2-3 correct options)
+5. For NAT: Write answer as exact numerical value (integer or decimal)
+6. For Subjective: Provide comprehensive step-by-step answer
+7. Use the concepts from Topic Notes when available
+8. AVOID LOOPS: If you make an error, STOP and restart with a different approach
+9. Keep solutions concise (max 500 characters) - don't go into infinite explanations
+
+ANSWER FORMAT EXAMPLES:
+- MCQ: "A" or "B" or "C" or "D" (single letter only)
+- MSQ: "A, C" or "B, D" or "A, B, C" (comma-separated letters)
+- NAT: "42" or "3.14" or "-25.5" (numerical value only)
+- Subjective: "Detailed answer explaining the concept..."
+
+SOLUTION WRITING RULES:
+1. Write in a single continuous line (no line breaks)
+2. Use periods to separate steps
+3. Keep it concise - aim for 3-5 key steps
+4. Don't repeat yourself or go in circles
+5. If the solution gets too long (>500 chars), STOP and summarize
 
 VERIFICATION PROCESS:
-- Step 1: Read the question carefully and identify what's being asked
-- Step 2: Solve using the most reliable method
-- Step 3: Double-check your work with alternative approach or reverse calculation
-- Step 4: Verify answer matches the question type requirements
-- Step 5: Write clear solution explaining each step
+- Step 1: Read question and identify what's asked
+- Step 2: Solve using authentic scientific method
+- Step 3: Verify your answer is in correct format
+- Step 4: Double-check calculations are correct
+- Step 5: Write concise solution (max 500 characters)
 
 Questions to solve:
 ${pyqs.map((q, i) => `
@@ -952,9 +975,8 @@ ${q.options ? `Options:\n${q.options.map((opt, idx) => `  ${String.fromCharCode(
 `).join('\n')}
 
 For each question provide:
-- CORRECT answer (MCQ: 'A' or 'B' or 'C' or 'D', MSQ: 'A, C' format, NAT: exact numerical value, SUB: comprehensive answer)
-- Step-by-step solution with clear explanations
-- Verification that your answer is correct
+- CORRECT answer in the exact format specified above
+- Concise solution (max 500 characters, single line)
 
 ABSOLUTE JSON REQUIREMENTS (NON-NEGOTIABLE):
 1. Return ONLY the JSON array - NOTHING before or after
@@ -963,19 +985,19 @@ ABSOLUTE JSON REQUIREMENTS (NON-NEGOTIABLE):
 4. NEVER use control characters (\\n, \\r, \\t, etc.) inside strings
 5. NEVER use smart quotes (""), always use straight quotes (")
 6. NEVER use Unicode escape sequences (\\uXXXX)
-7. NEVER use hex escapes (\\xXX) or octal escapes (\\nnn)
-8. Keep solution text as ONE continuous line - use periods to separate steps
-9. Start output directly with [ and end with ] - nothing else
+7. Keep solution text as ONE continuous line - use periods to separate steps
+8. Start output directly with [ and end with ] - nothing else
+9. Keep each solution under 500 characters
 
 CORRECT JSON FORMAT:
-[{"answer":"A","solution":"Step 1. Calculate X. Step 2. Verify Y. Step 3. Conclude Z. Therefore answer is A."}]
+[{"answer":"A","solution":"Step 1. Calculate force using F=ma. Step 2. Apply values F=10*5=50N. Step 3. Therefore answer is A (50N)."}]
 
 INCORRECT (will cause errors):
 \`\`\`json
 [...]
 \`\`\`
 
-Remember: 100% accuracy required. Triple-check calculations. Output only pure JSON.`;
+Remember: Use authentic concepts. Be concise. Avoid loops. Output only pure JSON.`;
 
   try {
     const response = await callGeminiAPI(prompt, undefined, 0.1, 3000);

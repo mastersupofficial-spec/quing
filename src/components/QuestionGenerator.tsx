@@ -3,6 +3,7 @@ import { Brain, BookOpen, Database, Zap, Settings, Play, Pause, CheckCircle, Cir
 import { supabase } from '../lib/supabase';
 import { generateQuestionsForTopic, generateSolutionsForPYQs, validateQuestionAnswer, ExtractedQuestion, setGeminiApiKeys } from '../lib/gemini';
 import { QuestionPreview } from './QuestionPreview';
+import { QuestionStats } from './QuestionStats';
 import toast, { Toaster } from 'react-hot-toast';
 
 interface Exam {
@@ -274,23 +275,50 @@ export function QuestionGenerator() {
     event.preventDefault();
     const pastedText = event.clipboardData.getData('text');
 
-    // Extract all API keys that start with AIzaSy
+    // Step 1: Clean the pasted text - remove extra spaces, commas, newlines
+    const cleanedText = pastedText
+      .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
+      .replace(/,+/g, ',')   // Replace multiple commas with single comma
+      .trim();               // Remove leading/trailing spaces
+
+    // Step 2: Extract all API keys that start with AIzaSy
+    // API keys are typically 39 characters long and contain alphanumeric, underscores, and hyphens
     const keyPattern = /AIzaSy[a-zA-Z0-9_-]+/g;
-    const extractedKeys = pastedText.match(keyPattern) || [];
+    const extractedKeys = cleanedText.match(keyPattern) || [];
 
     if (extractedKeys.length === 0) {
       toast.error('No valid API keys found. Keys must start with AIzaSy');
       return;
     }
 
-    // Limit to 100 keys
-    const keysToAdd = extractedKeys.slice(0, 100);
+    // Step 3: Clean each key individually - trim spaces and remove commas
+    const cleanedKeys = extractedKeys.map(key =>
+      key.trim().replace(/,/g, '')
+    );
 
-    // Remove duplicates
+    // Step 4: Validate each key - must not contain spaces or commas in the middle
+    const validKeys = cleanedKeys.filter(key => {
+      // API keys should not have spaces or commas within them
+      const isValid = !key.includes(' ') && !key.includes(',');
+      if (!isValid) {
+        console.warn(`Invalid API key filtered out: ${key}`);
+      }
+      return isValid;
+    });
+
+    if (validKeys.length === 0) {
+      toast.error('No valid API keys after cleaning. Ensure keys do not contain spaces or commas within them.');
+      return;
+    }
+
+    // Step 5: Limit to 100 keys
+    const keysToAdd = validKeys.slice(0, 100);
+
+    // Step 6: Remove duplicates
     const uniqueKeys = Array.from(new Set(keysToAdd));
 
     setApiKeys(uniqueKeys);
-    toast.success(`✅ ${uniqueKeys.length} unique API key(s) added!`);
+    toast.success(`✅ ${uniqueKeys.length} unique API key(s) added successfully!`);
   };
 
   const startGeneration = async () => {
@@ -384,6 +412,26 @@ export function QuestionGenerator() {
     }
   };
 
+  const getExistingQuestionsCount = async (topicId: string, questionType: string): Promise<number> => {
+    try {
+      const { count, error } = await supabase
+        .from('new_questions')
+        .select('*', { count: 'exact', head: true })
+        .eq('topic_id', topicId)
+        .eq('question_type', questionType);
+
+      if (error) {
+        console.error('Error counting existing questions:', error);
+        return 0;
+      }
+
+      return count || 0;
+    } catch (error) {
+      console.error('Error in getExistingQuestionsCount:', error);
+      return 0;
+    }
+  };
+
   const generateNewQuestions = async (topicsWithQuestions: any[]) => {
     const examName = exams.find(e => e.id === selectedExam)?.name || '';
     const courseName = courses.find(c => c.id === selectedCourse)?.name || '';
@@ -396,6 +444,23 @@ export function QuestionGenerator() {
 
       if (topic.questionsToGenerate === 0) continue;
 
+      // Check how many questions already exist for this topic
+      const existingCount = await getExistingQuestionsCount(topic.id, questionType);
+      const remainingToGenerate = Math.max(0, topic.questionsToGenerate - existingCount);
+
+      if (remainingToGenerate === 0) {
+        console.log(`Topic "${topic.name}" already has ${existingCount} questions. Skipping.`);
+        toast.success(`✅ Topic "${topic.name}" already has ${existingCount}/${topic.questionsToGenerate} questions!`);
+        continue;
+      }
+
+      if (existingCount > 0) {
+        toast.info(`📊 Topic "${topic.name}": ${existingCount} existing, generating ${remainingToGenerate} more`);
+      }
+
+      // Update topic.questionsToGenerate to only generate remaining
+      topic.questionsToGenerate = remainingToGenerate;
+
       setProgress(prev => ({
         ...prev,
         currentTopic: topic.name,
@@ -404,7 +469,7 @@ export function QuestionGenerator() {
         totalQuestionsInTopic: topic.questionsToGenerate
       }));
 
-      // Get PYQs for this topic for inspiration
+      // Get ALL PYQs for this topic for inspiration (including ALL fields)
       const { data: pyqs, error: pyqError } = await supabase
         .from('questions_topic_wise')
         .select('question_statement, options, answer, solution, question_type, year, slot, part')
@@ -415,7 +480,9 @@ export function QuestionGenerator() {
         console.error('Error loading PYQs:', pyqError);
       }
 
-      // Get already generated questions for this topic
+      console.log(`Loaded ${pyqs?.length || 0} PYQs for topic "${topic.name}"`);
+
+      // Get ALL already generated questions for this topic (not just current question type)
       const { data: allExistingQuestions, error: existingError } = await supabase
         .from('new_questions')
         .select('question_statement, options, answer')
@@ -427,9 +494,11 @@ export function QuestionGenerator() {
         console.error('Error loading existing questions:', existingError);
       }
 
-      // Format existing questions for AI context
-      const existingQuestionsContext = (allExistingQuestions || []).map((q, index) => 
-        `${index + 1}. ${q.question_statement}${q.options ? `\nOptions: ${q.options.join(', ')}` : ''}${q.answer ? `\nAnswer: ${q.answer}` : ''}`
+      console.log(`Loaded ${allExistingQuestions?.length || 0} existing ${questionType} questions for topic "${topic.name}"`);
+
+      // Format existing questions for AI context with clear structure
+      const existingQuestionsContext = (allExistingQuestions || []).map((q, index) =>
+        `${index + 1}. ${q.question_statement}${q.options && q.options.length > 0 ? `\nOptions: ${q.options.join(', ')}` : ''}${q.answer ? `\nAnswer: ${q.answer}` : ''}`
       ).join('\n\n');
 
       // Generate questions for this topic
@@ -498,13 +567,18 @@ export function QuestionGenerator() {
                 continue;
               }
 
-              // Additional validation for options
-              if ((questionType === 'MCQ' || questionType === 'MSQ') && question.options) {
-                if (question.options.length !== 4) {
-                  toast.error(`❌ Question must have exactly 4 options. Got ${question.options.length}. Retrying...`);
+              // Additional validation for options based on question type
+              if (questionType === 'MCQ' || questionType === 'MSQ') {
+                if (!question.options || question.options.length !== 4) {
+                  toast.error(`❌ ${questionType} must have exactly 4 options. Got ${question.options?.length || 0}. Retrying...`);
                   await new Promise(resolve => setTimeout(resolve, 3000));
                   continue;
                 }
+              }
+
+              // For NAT and Subjective, ensure options are null or empty
+              if (questionType === 'NAT' || questionType === 'Subjective') {
+                question.options = null;
               }
               
               // Question is valid, save to database
@@ -1153,6 +1227,15 @@ export function QuestionGenerator() {
             </div>
           )}
         </div>
+
+        {/* Question Statistics */}
+        {generationMode === 'new_questions' && selectedCourse && (
+          <QuestionStats
+            courseId={selectedCourse}
+            questionType={questionType}
+            totalTarget={totalQuestions}
+          />
+        )}
 
         {/* Topic Weightage Preview */}
         {generationMode === 'new_questions' && topics.length > 0 && (
