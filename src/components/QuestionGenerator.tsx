@@ -371,11 +371,34 @@ export function QuestionGenerator() {
     const topicsWithQuestions = calculationResult.topics;
     const totalQuestionsToGenerate = calculationResult.totalQuestionsToGenerate;
     const extraQuestionsCount = calculationResult.extraQuestionsCount;
-    
+
     const totalTopicsToProcess = topicsWithQuestions.filter(t => t.questionsToGenerate > 0).length;
 
+    // Show detailed generation plan
+    console.log('=== GENERATION PLAN ===');
+    console.log(`Total target: ${totalQuestions} questions`);
+    console.log(`Question type: ${questionType}`);
+    console.log(`Topics to process: ${totalTopicsToProcess}`);
+    console.log('\nPer-topic breakdown:');
+
+    let totalToGenerate = 0;
+    for (const topic of topicsWithQuestions) {
+      if (topic.questionsToGenerate > 0) {
+        console.log(`  - ${topic.name}: ${topic.questionsToGenerate} questions (${((topic.weightage || 0.02) * 100).toFixed(1)}% weightage)`);
+        totalToGenerate += topic.questionsToGenerate;
+      }
+    }
+    console.log(`\nTotal questions to generate: ${totalToGenerate}`);
+    console.log('======================\n');
+
     if (extraQuestionsCount > 0) {
-      toast.success(`🎯 Generating ${totalQuestions} questions + ${extraQuestionsCount} extra questions for zero-weightage topics = ${totalQuestionsToGenerate} total questions`);
+      toast.success(`🎯 Will generate ${totalQuestions} questions + ${extraQuestionsCount} extra (zero-weightage) = ${totalQuestionsToGenerate} total across ${totalTopicsToProcess} topics`, {
+        duration: 6000
+      });
+    } else {
+      toast.success(`🎯 Will generate ${totalQuestions} questions across ${totalTopicsToProcess} topics`, {
+        duration: 5000
+      });
     }
 
     // Reset session counters at the start of generation
@@ -436,30 +459,64 @@ export function QuestionGenerator() {
     const examName = exams.find(e => e.id === selectedExam)?.name || '';
     const courseName = courses.find(c => c.id === selectedCourse)?.name || '';
 
-    let totalGenerated = 0;
-    const allGeneratedQuestions: ExtractedQuestion[] = [];
+    // First, calculate actual generation needs by checking existing questions
+    console.log('\n🔍 Analyzing existing questions for each topic...\n');
+    toast('🔍 Analyzing existing questions...', { duration: 3000 });
 
-    for (let topicIndex = 0; topicIndex < topicsWithQuestions.length; topicIndex++) {
-      const topic = topicsWithQuestions[topicIndex];
+    const topicsWithActualNeeds = [];
+    let totalActualGeneration = 0;
 
+    for (const topic of topicsWithQuestions) {
       if (topic.questionsToGenerate === 0) continue;
 
-      // Check how many questions already exist for this topic
       const existingCount = await getExistingQuestionsCount(topic.id, questionType);
       const remainingToGenerate = Math.max(0, topic.questionsToGenerate - existingCount);
 
-      if (remainingToGenerate === 0) {
-        console.log(`Topic "${topic.name}" already has ${existingCount} questions. Skipping.`);
-        toast.success(`✅ Topic "${topic.name}" already has ${existingCount}/${topic.questionsToGenerate} questions!`);
-        continue;
+      if (remainingToGenerate > 0) {
+        topicsWithActualNeeds.push({
+          ...topic,
+          existingCount,
+          questionsToGenerate: remainingToGenerate,
+          originalTarget: topic.questionsToGenerate
+        });
+        totalActualGeneration += remainingToGenerate;
       }
+    }
 
-      if (existingCount > 0) {
-        toast.info(`📊 Topic "${topic.name}": ${existingCount} existing, generating ${remainingToGenerate} more`);
-      }
+    // Show pre-generation summary
+    console.log('\n📊 === ACTUAL GENERATION PLAN ===');
+    console.log(`Topics needing questions: ${topicsWithActualNeeds.length}`);
+    console.log(`Total questions to generate: ${totalActualGeneration}\n`);
 
-      // Update topic.questionsToGenerate to only generate remaining
-      topic.questionsToGenerate = remainingToGenerate;
+    if (topicsWithActualNeeds.length === 0) {
+      toast.success('✅ All topics already have the required number of questions!', { duration: 5000 });
+      return;
+    }
+
+    toast.success(`📊 Will generate ${totalActualGeneration} questions across ${topicsWithActualNeeds.length} topics`, {
+      duration: 5000
+    });
+
+    topicsWithActualNeeds.forEach(t => {
+      console.log(`  📌 ${t.name}: Generate ${t.questionsToGenerate} (Existing: ${t.existingCount}/${t.originalTarget})`);
+    });
+    console.log('\n=================================\n');
+
+    let totalGenerated = 0;
+    const allGeneratedQuestions: ExtractedQuestion[] = [];
+
+    for (let topicIndex = 0; topicIndex < topicsWithActualNeeds.length; topicIndex++) {
+      const topic = topicsWithActualNeeds[topicIndex];
+
+      console.log(`\n📋 Processing Topic "${topic.name}":`);
+      console.log(`   Original Target: ${topic.originalTarget}`);
+      console.log(`   Existing: ${topic.existingCount}`);
+      console.log(`   Generating Now: ${topic.questionsToGenerate}`);
+
+      toast(`🎯 Topic ${topicIndex + 1}/${topicsWithActualNeeds.length}: "${topic.name}" - Generating ${topic.questionsToGenerate} questions`, {
+        icon: '📝',
+        duration: 4000
+      });
 
       setProgress(prev => ({
         ...prev,
@@ -665,12 +722,12 @@ export function QuestionGenerator() {
       }
 
       // Delay between topics
-      if (topicIndex < topicsWithQuestions.length - 1) {
+      if (topicIndex < topicsWithActualNeeds.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 5000));
       }
     }
 
-    toast.success(`🎉 Generation complete! Generated ${totalGenerated} questions across ${topicsWithQuestions.filter(t => t.questionsToGenerate > 0).length} topics!`);
+    toast.success(`🎉 Generation complete! Generated ${totalGenerated} questions across ${topicsWithActualNeeds.length} topics!`);
   };
 
   const generatePYQSolutions = async () => {
@@ -745,7 +802,10 @@ export function QuestionGenerator() {
         return;
       }
 
-      toast.info(`🚀 Starting generation for ${remaining} remaining PYQs...`, { duration: 5000 });
+      toast(`🚀 Starting generation for ${remaining} remaining PYQs...`, {
+        icon: 'ℹ️',
+        duration: 5000
+      });
 
       // Create a map of topic_id to topic data for quick lookup
       const topicMap = new Map(courseTopics.map(t => [t.id, t]));
